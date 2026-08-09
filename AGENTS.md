@@ -24,7 +24,11 @@ src/
     dto/         # GraphQL input types
     models/      # GraphQL object types
     validations/ # Zod schemas + ZodValidationPipe
-  weather/       # forecast fetching + persistence (stub, not yet implemented)
+  weather/       # Open-Meteo forecast fetching, given lat/lon/timezone
+    models/      # GraphQL object types (DailyForecast)
+                 # no resolver/query yet, and no dependency on geocoding/ —
+                 # WeatherService takes plain lat/lon/timezone primitives
+                 # (persistence + GraphQL wiring still to come)
   scoring/        # activity scoring logic
 ```
 Resolvers and services live next to what they integrate with (e.g.

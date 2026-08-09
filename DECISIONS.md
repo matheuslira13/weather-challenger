@@ -129,4 +129,60 @@ matters.
 
 ---
 
+## [2026-08-09] Standalone forecast-fetching service in weather/, no geocoding coupling yet
+
+**Question:** Implementing `WeatherService.getDailyForecast(latitude,
+longitude, timezone)` against Open-Meteo's daily forecast endpoint raised:
+where should the erroneous `weather.module.ts` stub content go (it actually
+contained a duplicate `WeatherResolver` class, not a `@Module()`), should
+`WeatherModule` be wired into `AppModule` now even though it exposes no
+GraphQL surface yet, and what GraphQL field types (`Int` vs `Float`) fit the
+raw Open-Meteo values.
+
+**Explored with AI:** confirmed via a live call to
+`api.open-meteo.com/v1/forecast` what shape/type each daily variable
+actually comes back as, rather than guessing.
+
+**Decision:**
+- `weather.module.ts` now holds a real `@Module()` (`WeatherModule`),
+  replacing its previous accidental content (a copy of the `WeatherResolver`
+  stub). It imports `HttpModule` directly, provides and exports
+  `WeatherService` — exported so a later step (chaining geocoding →
+  forecast) can consume it from another module without restructuring.
+  `weather.resolver.ts` / `weather.resolver.spec.ts` /
+  `models/weather.model.ts` are untouched, still reserved for future
+  GraphQL wiring.
+- `WeatherModule` is wired into `AppModule` now (same pattern as
+  `GeocodingModule`: self-contained, imported independently), even though it
+  has no resolver yet — this just makes `WeatherService` part of the app's
+  DI graph. It adds no GraphQL types/queries; confirmed `src/schema.gql` is
+  byte-for-byte unchanged after this work.
+- New `models/daily-forecast.model.ts` (`DailyForecast`) is a GraphQL
+  `@ObjectType()`, consistent with the existing `models/` convention
+  (`geocoding-result.model.ts`), even though nothing references it yet —
+  decorating it is inert until a resolver exists.
+- Field types on `DailyForecast`, based on a live Open-Meteo response:
+  `temperatureMax`/`temperatureMin`/`snowfallSum`/`windSpeedMax`/
+  `windDirectionDominant` as `Float` (continuous measurements — kept
+  `windDirectionDominant` as `Float` rather than `Int` since compass-average
+  degrees could plausibly be fractional even though the sample was whole
+  numbers); `precipitationProbabilityMax` and `weatherCode` as `Int`
+  (percentage and WMO code are always whole numbers per Open-Meteo's own
+  docs and the sample response).
+- Pipeline mirrors `geocoding.service.ts`: `tap` (log raw response) →
+  `catchError` (request failures → `InternalServerErrorException`) → `map`
+  (zip the seven parallel `daily.*` arrays into `DailyForecast[]`). No
+  `NotFoundException`-style empty-check step — unlike geocoding's city
+  search, a well-formed lat/lon/timezone always yields forecast data from
+  this endpoint, so there's no "not found" case to guard against.
+- No coupling to `GeocodingModule`: `WeatherService` takes plain
+  `latitude`/`longitude`/`timezone` primitives, has no dependency on
+  `GeocodingService` or its types, and no `switchMap`-style chaining exists
+  yet.
+
+**Assumption (would confirm with a PM):** none beyond the field-type choices
+above — verified against a real API response rather than guessed.
+
+---
+
 ## [date] Next real entry goes here
