@@ -2,8 +2,8 @@ import { Args, Query, Resolver } from '@nestjs/graphql';
 import { GeocodeCityInput } from './dto/geocode-city.input';
 import { GeocodingService } from './geocoding.service';
 import { GeocodingResult } from './models/geocoding-result.model';
-import { ZodValidationPipe } from './validations/validations.pipe';
-import { createGeocodingSchema } from './validations/geocoding.schema';
+import { ZodValidationPipe } from '../common/validations/validations.pipe';
+import { createGeocodingSchema } from '../common/validations/schema/geocoding.schema';
 
 @Resolver(() => GeocodingResult)
 export class GeocodingResolver {

@@ -7,6 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AxiosResponse } from 'axios';
 import { of, throwError } from 'rxjs';
 import { GeocodingService } from './geocoding.service';
+import { WeatherService } from '../weather/weather.service';
 
 describe('GeocodingService', () => {
   let service: GeocodingService;
@@ -19,6 +20,7 @@ describe('GeocodingService', () => {
       providers: [
         GeocodingService,
         { provide: HttpService, useValue: httpService },
+        { provide: WeatherService, useValue: {} },
       ],
     }).compile();
 

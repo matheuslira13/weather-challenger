@@ -9,6 +9,7 @@ import { firstValueFrom } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
 import { GeocodeCityInput } from './dto/geocode-city.input';
 import { GeocodingResult } from './models/geocoding-result.model';
+import { WeatherService } from '../weather/weather.service';
 
 const OPEN_METEO_GEOCODING_URL =
   'https://geocoding-api.open-meteo.com/v1/search';
@@ -29,7 +30,10 @@ interface OpenMeteoGeocodingResponse {
 export class GeocodingService {
   private readonly logger = new Logger(GeocodingService.name);
 
-  constructor(private readonly httpService: HttpService) {}
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly weatherService: WeatherService,
+  ) {}
 
   geocodeCity(input: GeocodeCityInput): Promise<GeocodingResult> {
     const { city, countryCode } = input;
@@ -46,12 +50,14 @@ export class GeocodingService {
           },
         })
         .pipe(
-          tap((response) =>
+          tap((response) => {
+            this.logger.debug(`geocodingService`);
             this.logger.debug(
               `Open-Meteo geocoding response for "${city}, ${countryCode}": ${JSON.stringify(response.data)}`,
-            ),
-          ),
+            );
+          }),
           catchError((error: Error) => {
+            this.logger.error(`geocodingService`);
             this.logger.error(
               `Open-Meteo geocoding request failed for "${city}, ${countryCode}": ${error.message}`,
               error.stack,
