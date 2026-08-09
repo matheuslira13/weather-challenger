@@ -1,0 +1,20 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type GeocodingResult {
+  latitude: Float!
+  longitude: Float!
+  timezone: String!
+  admin1: String
+  admin2: String
+}
+
+type Query {
+  geocodeCity(input: GeocodeCityInput!): GeocodingResult!
+}
+
+input GeocodeCityInput {
+  city: String!
+  countryCode: String!
+}
