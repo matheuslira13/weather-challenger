@@ -7,6 +7,8 @@ import { createWeatherSchema } from '../common/validations/schema/weather.schema
 import { createGeocodingSchema } from '../common/validations/schema/geocoding.schema';
 import { WeatherService } from './weather.service';
 import { GeocodeCityInput } from '../geocoding/dto/geocode-city.input';
+import { UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor } from '../common/cache/cache.interceptor';
 
 @Resolver(() => WeatherResult)
 export class WeatherResolver {
@@ -24,6 +26,7 @@ export class WeatherResolver {
     );
   }
 
+  @UseInterceptors(CacheInterceptor)
   @Query(() => CityForecastResult, { name: 'cityForecast' })
   getCityForecast(
     @Args('input', new ZodValidationPipe(createGeocodingSchema))
