@@ -7,7 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AxiosResponse } from 'axios';
 import { of, throwError } from 'rxjs';
 import { GeocodingService } from './geocoding.service';
-import { WeatherService } from '../weather/weather.service';
+import { LoggerService } from '../common/modules/log/logger.service';
 
 describe('GeocodingService', () => {
   let service: GeocodingService;
@@ -20,7 +20,15 @@ describe('GeocodingService', () => {
       providers: [
         GeocodingService,
         { provide: HttpService, useValue: httpService },
-        { provide: WeatherService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
