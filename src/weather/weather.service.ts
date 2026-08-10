@@ -4,9 +4,14 @@ import { firstValueFrom, from, Observable } from 'rxjs';
 import { catchError, map, switchMap, tap } from 'rxjs/operators';
 import { WeatherResult } from './models/daily-forecast-result.model';
 import { CityForecastResult } from './models/city-forecast-result.model';
+import { ActivityScores } from './models/activity-scores.model';
 import { LoggerService } from '../common/modules/log/logger.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { GeocodeCityInput } from '../geocoding/dto/geocode-city.input';
+import { OutdoorSightseeingScoreService } from '../scoring/outdoor-sightseeing.service';
+import { SkiingScoreService } from '../scoring/skiing-score.service';
+import { SurfingScoreService } from '../scoring/surfing-score.service';
+import { IndoorSightseeingScoreService } from '../scoring/indoor-sightseeing-score.service';
 
 const OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 
@@ -41,6 +46,10 @@ export class WeatherService {
     private readonly httpService: HttpService,
     private readonly logger: LoggerService,
     private readonly geocodingService: GeocodingService,
+    private readonly outdoorSightseeingScoreService: OutdoorSightseeingScoreService,
+    private readonly skiingScoreService: SkiingScoreService,
+    private readonly surfingScoreService: SurfingScoreService,
+    private readonly indoorSightseeingScoreService: IndoorSightseeingScoreService,
   ) {}
 
   getDailyForecast(
@@ -117,18 +126,37 @@ export class WeatherService {
         }),
         map((response) => {
           const { daily } = response.data;
-          return daily.time.map((date, index) => ({
-            date,
-            temperatureMax: daily.temperature_2m_max[index],
-            temperatureMin: daily.temperature_2m_min[index],
-            precipitationProbabilityMax:
-              daily.precipitation_probability_max[index],
-            snowfallSum: daily.snowfall_sum[index],
-            windSpeedMax: daily.wind_speed_10m_max[index],
-            windDirectionDominant: daily.wind_direction_10m_dominant[index],
-            weatherCode: daily.weather_code[index],
-          }));
+          return daily.time.map((date, index) => {
+            // `activities` is populated right below via `buildActivityScores`.
+            // None of the scoring services read `day.activities` back, so
+            // building `day` without it first and casting is safe.
+            const day = {
+              date,
+              temperatureMax: daily.temperature_2m_max[index],
+              temperatureMin: daily.temperature_2m_min[index],
+              precipitationProbabilityMax:
+                daily.precipitation_probability_max[index],
+              snowfallSum: daily.snowfall_sum[index],
+              windSpeedMax: daily.wind_speed_10m_max[index],
+              windDirectionDominant: daily.wind_direction_10m_dominant[index],
+              weatherCode: daily.weather_code[index],
+            } as WeatherResult;
+
+            day.activities = this.buildActivityScores(day);
+
+            return day;
+          });
         }),
       );
+  }
+
+  private buildActivityScores(day: WeatherResult): ActivityScores {
+    return {
+      skiing: this.skiingScoreService.calculateScore(day),
+      surfing: this.surfingScoreService.calculateScore(day),
+      outdoorSightseeing:
+        this.outdoorSightseeingScoreService.calculateScore(day),
+      indoorSightseeing: this.indoorSightseeingScoreService.calculateScore(day),
+    };
   }
 }

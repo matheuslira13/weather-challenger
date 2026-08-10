@@ -1,4 +1,5 @@
 import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
+import { ActivityScores } from './activity-scores.model';
 
 @ObjectType()
 export class WeatherResult {
@@ -25,4 +26,7 @@ export class WeatherResult {
 
   @Field(() => Int)
   weatherCode: number;
+
+  @Field(() => ActivityScores)
+  activities: ActivityScores;
 }

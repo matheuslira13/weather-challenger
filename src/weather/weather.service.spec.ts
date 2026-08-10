@@ -9,29 +9,60 @@ import { of, throwError } from 'rxjs';
 import { WeatherService } from './weather.service';
 import { LoggerService } from '../common/modules/log/logger.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { OutdoorSightseeingScoreService } from '../scoring/outdoor-sightseeing.service';
+import { SkiingScoreService } from '../scoring/skiing-score.service';
+import { SurfingScoreService } from '../scoring/surfing-score.service';
+import { IndoorSightseeingScoreService } from '../scoring/indoor-sightseeing-score.service';
+
+const activityScores = {
+  skiing: 0,
+  surfing: 0,
+  outdoorSightseeing: 0,
+  indoorSightseeing: 0,
+};
 
 describe('WeatherService', () => {
   let service: WeatherService;
   let httpService: { get: jest.Mock };
   let geocodingService: { geocodeCity: jest.Mock };
+  let loggerService: {
+    log: jest.Mock;
+    error: jest.Mock;
+    warn: jest.Mock;
+    debug: jest.Mock;
+  };
 
   beforeEach(async () => {
     httpService = { get: jest.fn() };
     geocodingService = { geocodeCity: jest.fn() };
+    loggerService = {
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WeatherService,
         { provide: HttpService, useValue: httpService },
         { provide: GeocodingService, useValue: geocodingService },
+        { provide: LoggerService, useValue: loggerService },
         {
-          provide: LoggerService,
-          useValue: {
-            log: jest.fn(),
-            error: jest.fn(),
-            warn: jest.fn(),
-            debug: jest.fn(),
-          },
+          provide: OutdoorSightseeingScoreService,
+          useValue: { calculateScore: jest.fn().mockReturnValue(0) },
+        },
+        {
+          provide: SkiingScoreService,
+          useValue: { calculateScore: jest.fn().mockReturnValue(0) },
+        },
+        {
+          provide: SurfingScoreService,
+          useValue: { calculateScore: jest.fn().mockReturnValue(0) },
+        },
+        {
+          provide: IndoorSightseeingScoreService,
+          useValue: { calculateScore: jest.fn().mockReturnValue(0) },
         },
       ],
     }).compile();
@@ -90,6 +121,7 @@ describe('WeatherService', () => {
       windSpeedMax: 12.8,
       windDirectionDominant: 158,
       weatherCode: 51,
+      activities: activityScores,
     });
     expect(httpService.get).toHaveBeenCalledWith(
       'https://api.open-meteo.com/v1/forecast',
@@ -114,6 +146,7 @@ describe('WeatherService', () => {
     await expect(
       service.getDailyForecast(-23.5475, -46.63611, 'America/Sao_Paulo'),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(loggerService.error).toHaveBeenCalled();
   });
 
   describe('getCityForecast', () => {
@@ -171,6 +204,7 @@ describe('WeatherService', () => {
             windSpeedMax: 12.8,
             windDirectionDominant: 158,
             weatherCode: 51,
+            activities: activityScores,
           },
         ],
       });
@@ -185,6 +219,7 @@ describe('WeatherService', () => {
         service.getCityForecast({ city: 'Nowhereland', countryCode: 'XX' }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(httpService.get).not.toHaveBeenCalled();
+      expect(loggerService.error).toHaveBeenCalled();
     });
 
     it('throws InternalServerErrorException when the forecast request fails', async () => {
@@ -196,6 +231,7 @@ describe('WeatherService', () => {
       await expect(
         service.getCityForecast({ city: 'São Paulo', countryCode: 'BR' }),
       ).rejects.toBeInstanceOf(InternalServerErrorException);
+      expect(loggerService.error).toHaveBeenCalled();
     });
   });
 });

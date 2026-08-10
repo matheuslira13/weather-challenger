@@ -12,23 +12,27 @@ import { LoggerService } from '../common/modules/log/logger.service';
 describe('GeocodingService', () => {
   let service: GeocodingService;
   let httpService: { get: jest.Mock };
+  let loggerService: {
+    log: jest.Mock;
+    error: jest.Mock;
+    warn: jest.Mock;
+    debug: jest.Mock;
+  };
 
   beforeEach(async () => {
     httpService = { get: jest.fn() };
+    loggerService = {
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GeocodingService,
         { provide: HttpService, useValue: httpService },
-        {
-          provide: LoggerService,
-          useValue: {
-            log: jest.fn(),
-            error: jest.fn(),
-            warn: jest.fn(),
-            debug: jest.fn(),
-          },
-        },
+        { provide: LoggerService, useValue: loggerService },
       ],
     }).compile();
 
@@ -111,5 +115,6 @@ describe('GeocodingService', () => {
     await expect(
       service.geocodeCity({ city: 'São Paulo', countryCode: 'BR' }),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(loggerService.error).toHaveBeenCalled();
   });
 });
