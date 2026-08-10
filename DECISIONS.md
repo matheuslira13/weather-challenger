@@ -185,4 +185,63 @@ above — verified against a real API response rather than guessed.
 
 ---
 
+## [2026-08-09] WeatherService orchestrates GeocodingService for a combined `cityForecast` query
+
+**Question:** A single query needed to return a city's full 7-day forecast
+(geocode the city, then fetch the forecast for the resolved coordinates).
+Which service should own the orchestration and depend on the other, where
+should the combined result type live, and should the existing geocode-only
+`geocodeCity` query be removed once the combined query exists?
+
+**Explored with AI:** discussed `GeocodingService` depending on
+`WeatherService` vs. the reverse; discussed adapting `geocodeCity`'s
+Promise-returning call into the new RxJS pipeline via `from()` vs. mixing
+`await` with an Observable chain; discussed whether to keep the geocode-only
+query once a combined query exists.
+
+**Decision:**
+- `WeatherService` is the orchestrator: `WeatherModule` imports
+  `GeocodingModule`, and `WeatherService` injects `GeocodingService` via its
+  constructor. `GeocodingModule` now `exports: [GeocodingService]` so it can
+  be consumed this way. `GeocodingService`/`GeocodingModule` have zero
+  awareness of `weather/` — no import, injection, or reference in either
+  direction back.
+- New `WeatherService.getCityForecast(input: GeocodeCityInput):
+  Promise<CityForecastResult>` implements the whole thing as one RxJS
+  pipeline: `from(this.geocodingService.geocodeCity(input))` adapts the
+  already-Promise-returning geocoding call back into an Observable (rather
+  than mixing `await` with `switchMap`), `tap`/`catchError` log the
+  geocoding leg specifically (the `catchError` here only logs and rethrows
+  the original exception — `GeocodingService` already maps failures to
+  `NotFoundException` vs `InternalServerErrorException`, so no
+  re-wrapping), then `switchMap` feeds the resolved location into a
+  `fetchForecast$` private helper (extracted from the pre-existing
+  `getDailyForecast` HTTP call, now shared by both) with its own
+  `tap`/`catchError` logging, `map`ping the two results together into
+  `{ location, forecast }`. `firstValueFrom` converts to a `Promise` only at
+  the very end of the combined chain.
+- `CityForecastResult` (`{ location: GeocodingResult, forecast:
+  WeatherResult[] }`) lives in `weather/models/city-forecast-result.model.ts`,
+  not `geocoding/models/`, since it's the orchestrator's return shape and
+  keeps `geocoding/models/geocoding-result.model.ts` from having to know
+  about `WeatherResult`. It composes the two existing types as fields — no
+  `extends`/inheritance between `GeocodingResult` and `WeatherResult`.
+- Both the geocode-only `geocodeCity` query (in `geocoding/`, unchanged
+  behavior — still just `GeocodingResult`) and the new `cityForecast` query
+  (in `weather/weather.resolver.ts`, alongside the existing lat/lon/timezone
+  `weather` query) are kept side by side in the schema — confirmed with a
+  PM-equivalent decision rather than assumed, since they serve different
+  callers (raw geocoding lookup vs. full forecast-by-city-name).
+- Incidental cleanup while rewiring: `WeatherResolver` was previously
+  registered directly on `AppModule`'s `providers` instead of
+  `WeatherModule`'s (worked by accident because `WeatherModule` exports
+  `WeatherService` into `AppModule`'s scope) — moved into `WeatherModule` to
+  match `GeocodingModule`'s self-contained pattern.
+
+**Assumption (would confirm with a PM):** none beyond the "keep both
+queries" call above, which was explicitly asked and confirmed rather than
+assumed.
+
+---
+
 ## [date] Next real entry goes here

@@ -23,25 +23,33 @@ src/
   geocoding/     # Open-Meteo geocoding lookup (city + country -> lat/lon/tz)
     dto/         # GraphQL input types
     models/      # GraphQL object types
-    validations/ # Zod schemas + ZodValidationPipe
-  weather/       # Open-Meteo forecast fetching, given lat/lon/timezone
-    models/      # GraphQL object types (DailyForecast)
-                 # no resolver/query yet, and no dependency on geocoding/ —
-                 # WeatherService takes plain lat/lon/timezone primitives
-                 # (persistence + GraphQL wiring still to come)
+  weather/       # Open-Meteo forecast fetching + geocoding->forecast orchestration
+    dto/         # GraphQL input types
+    models/      # GraphQL object types (WeatherResult, CityForecastResult)
+  common/
+    modules/log/       # LoggerService, shared by both modules
+    validations/       # Zod schemas + ZodValidationPipe, shared by both modules
   scoring/        # activity scoring logic
 ```
 Resolvers and services live next to what they integrate with (e.g.
 `geocoding/geocoding.resolver.ts`, `geocoding/geocoding.service.ts`) rather
 than in a separate top-level `graphql/` folder. Each module is
-self-contained — `GeocodingModule` imports its own `HttpModule`, etc. — and
-is wired into `AppModule` independently of sibling modules.
+self-contained — `GeocodingModule` imports its own `HttpModule`, etc.
+
+Dependency direction: `WeatherModule` imports `GeocodingModule` and
+`WeatherService` injects `GeocodingService` to orchestrate a combined
+geocode+forecast lookup (`cityForecast` query). This is one-directional —
+`GeocodingService`/`GeocodingModule` must never import or depend on
+anything from `weather/`. `GeocodingModule` exports `GeocodingService` for
+this reason. See DECISIONS.md 2026-08-09 ("WeatherService orchestrates
+GeocodingService").
 
 Input validation for a module's GraphQL args uses a custom Zod-backed
-`PipeTransform` local to that module (see `geocoding/validations/`), applied
-via `@Args('input', new ZodValidationPipe(schema))`, not class-validator
-decorators on the DTO. This is currently only established for `geocoding/`.
-(update this as the real structure solidifies)
+`PipeTransform` (`common/validations/validations.pipe.ts`) backed by
+per-domain schemas in `common/validations/schema/`, applied via
+`@Args('input', new ZodValidationPipe(schema))`, not class-validator
+decorators on the DTO. This is now a project-wide convention, used by both
+`geocoding/` and `weather/`.
 
 ## Conventions
 

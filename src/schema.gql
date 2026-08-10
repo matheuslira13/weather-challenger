@@ -21,18 +21,24 @@ type GeocodingResult {
   admin2: String
 }
 
+type CityForecastResult {
+  location: GeocodingResult!
+  forecast: [WeatherResult!]!
+}
+
 type Query {
-  weather(input: WeatherInput!): [WeatherResult!]!
   geocodeCity(input: GeocodeCityInput!): GeocodingResult!
+  weather(input: WeatherInput!): [WeatherResult!]!
+  cityForecast(input: GeocodeCityInput!): CityForecastResult!
+}
+
+input GeocodeCityInput {
+  city: String!
+  countryCode: String!
 }
 
 input WeatherInput {
   latitude: Float!
   longitude: Float!
   timezone: String!
-}
-
-input GeocodeCityInput {
-  city: String!
-  countryCode: String!
 }

@@ -2,14 +2,13 @@ import { HttpService } from '@nestjs/axios';
 import {
   Injectable,
   InternalServerErrorException,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
 import { GeocodeCityInput } from './dto/geocode-city.input';
 import { GeocodingResult } from './models/geocoding-result.model';
-import { WeatherService } from '../weather/weather.service';
+import { LoggerService } from '../common/modules/log/logger.service';
 
 const OPEN_METEO_GEOCODING_URL =
   'https://geocoding-api.open-meteo.com/v1/search';
@@ -28,11 +27,9 @@ interface OpenMeteoGeocodingResponse {
 
 @Injectable()
 export class GeocodingService {
-  private readonly logger = new Logger(GeocodingService.name);
-
   constructor(
     private readonly httpService: HttpService,
-    private readonly weatherService: WeatherService,
+    private readonly logger: LoggerService,
   ) {}
 
   geocodeCity(input: GeocodeCityInput): Promise<GeocodingResult> {
@@ -50,17 +47,17 @@ export class GeocodingService {
           },
         })
         .pipe(
-          tap((response) => {
-            this.logger.debug(`geocodingService`);
-            this.logger.debug(
+          tap((response) =>
+            this.logger.log(
               `Open-Meteo geocoding response for "${city}, ${countryCode}": ${JSON.stringify(response.data)}`,
-            );
-          }),
+              GeocodingService.name,
+            ),
+          ),
           catchError((error: Error) => {
-            this.logger.error(`geocodingService`);
             this.logger.error(
               `Open-Meteo geocoding request failed for "${city}, ${countryCode}": ${error.message}`,
               error.stack,
+              GeocodingService.name,
             );
             throw new InternalServerErrorException(
               'Failed to reach the geocoding service',
@@ -71,6 +68,7 @@ export class GeocodingService {
             if (!results || results.length === 0) {
               this.logger.warn(
                 `No geocoding results found for "${city}, ${countryCode}"`,
+                GeocodingService.name,
               );
             }
           }),
