@@ -29,6 +29,8 @@ src/
   common/
     modules/log/       # LoggerService, shared by both modules
     validations/       # Zod schemas + ZodValidationPipe, shared by both modules
+    cache/              # CacheInterceptor (per-query GraphQL response caching via Redis)
+  redis/           # RedisService — ioredis wrapper, connects via REDIS_URL
   scoring/        # activity scoring logic
 ```
 Resolvers and services live next to what they integrate with (e.g.

@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { GraphQLModule } from '@nestjs/graphql';
 import { WeatherModule } from './weather/weather.module';
 import { GeocodingModule } from './geocoding/geocoding.module';
+import { ConfigModule } from '@nestjs/config';
 import { join } from 'path';
 
 @Module({
@@ -13,6 +14,7 @@ import { join } from 'path';
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'src', 'schema.gql'),
     }),
+    ConfigModule.forRoot(),
     GeocodingModule,
     WeatherModule,
   ],

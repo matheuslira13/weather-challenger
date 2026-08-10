@@ -244,4 +244,78 @@ assumed.
 
 ---
 
+## [2026-08-10] Redis caching layer for the `cityForecast` query
+
+**Question:** Repeated `cityForecast` lookups for the same city hit both the
+Open-Meteo geocoding API and the forecast API on every request, even though
+forecast data doesn't change minute-to-minute. What should back a cache (and
+is a database even the right tool for it), where should the caching logic
+live, and how should cache keys be derived in a GraphQL API where every
+request is a POST to the same `/graphql` endpoint — so HTTP method/URL
+can't be used the way a REST cache would use them?
+
+**Explored with AI:** discussed Redis vs. a relational/document database as
+the cache store; discussed a global Nest interceptor covering every
+resolver vs. per-query opt-in via `@UseInterceptors`; discussed deriving the
+cache key from the GraphQL execution context's resolved input args vs. some
+HTTP-level signal.
+
+**Decision:**
+- Storage: Redis (hosted on Redis Cloud, free tier — connection string in
+  `.env` as `REDIS_URL`, gitignored), chosen over a relational/document
+  database as overkill for this: the cached data is inherently short-lived
+  (forecasts expire naturally after a few hours) and there's no historical
+  or audit querying need — a plain expiring key-value store fits the shape
+  of the problem.
+- New `src/redis/` module: `RedisService` (`redis.service.ts`) wraps
+  `ioredis`, connecting via a single `REDIS_URL` env var rather than
+  separate host/port/password fields — `new Redis(process.env.REDIS_URL as
+  string)`. `ConfigModule.forRoot()` was added to `AppModule` so `.env` is
+  actually loaded. `RedisService` exposes only `get(key): Promise<string |
+  null>` and `set(key, value, ttlSeconds): Promise<void>` — `ttlSeconds` is
+  a required parameter (no default), so every caller has to make an
+  explicit TTL decision; `set` writes with `EX` in seconds. It implements
+  `OnModuleDestroy` to disconnect the `ioredis` client on shutdown.
+  `RedisModule` provides and exports both `RedisService` and
+  `CacheInterceptor` — there's no separate `CacheModule`; `RedisModule` is
+  the single home for both, and `WeatherModule` imports `RedisModule`
+  directly.
+- New `src/common/cache/cache.interceptor.ts`: `CacheInterceptor`, a
+  `NestInterceptor` injecting `RedisService` via constructor DI. It's
+  applied **per-query**, not globally — `@UseInterceptors(CacheInterceptor)`
+  sits directly on `WeatherResolver.getCityForecast` only. The plain
+  `weather` (lat/lon/timezone) query is not cached.
+- Cache key: built from the GraphQL query's resolved input args
+  (`city`/`countryCode`) via `GqlExecutionContext.create(context).getArgs()`,
+  not from HTTP method/URL — every GraphQL request is a POST to the same
+  `/graphql` endpoint, so there's no per-query URL to key off. Key shape:
+  `` `forecast:${countryCode.toLowerCase()}:${city.toLowerCase().replace(/\s+/g, '-')}` ``
+  (e.g. `forecast:br:sao-paulo`).
+- TTL: `CACHE_TTL_SECONDS = 60 * 60 * 3` (3 hours), a named constant at the
+  top of `cache.interceptor.ts`. Chosen because forecast data doesn't need
+  to be accurate to the minute — a multi-hour-old 7-day forecast is still a
+  reasonable answer, so a few hours of staleness is an acceptable trade for
+  cutting repeated upstream calls.
+- RxJS pattern inside `intercept()`: `from(this.redisService.get(cacheKey))`
+  converts the Redis `get` Promise into an Observable; `switchMap` (not
+  `map`) branches on the result — a hit returns `of(JSON.parse(cached))`, a
+  miss falls through to `next.handle()` — both branches are themselves
+  Observables, and `switchMap` flattens them into a single stream instead of
+  the Observable-of-Observable that `map` would produce.
+- What's cached: the **full `CityForecastResult`** (`{ location, forecast
+  }`), not just the raw forecast array — the miss-path `tap` JSON-stringifies
+  and stores whatever `next.handle()` emits, which is
+  `WeatherResolver.getCityForecast`'s full return value. A cache hit
+  therefore skips the geocoding call too, not just the forecast call — both
+  upstream Open-Meteo requests are avoided on a repeat lookup for the same
+  city/country.
+
+**Assumption (would confirm with a PM):** the cache write on the miss path
+(`this.redisService.set(...)` inside `tap`) is not awaited — it's
+fire-and-forget, so a Redis write failure wouldn't surface anywhere or block
+the response, but a slow write also can't delay it. Left as observed rather
+than changed, since that wasn't part of what was being decided here.
+
+---
+
 ## [date] Next real entry goes here
