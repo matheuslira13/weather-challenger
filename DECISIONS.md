@@ -318,4 +318,99 @@ than changed, since that wasn't part of what was being decided here.
 
 ---
 
+## [2026-08-10] Activity scoring for all 4 activities, and where scores live in the schema
+
+**Question:** `OutdoorSightseeingScoreService` already existed as the only
+implemented scorer. Implementing the other three (skiing, surfing, indoor
+sightseeing) raised: what thresholds/weights should each use (only
+directions — "penalize warm temps," "penalize strong wind" — were given, not
+numbers), how should indoor sightseeing's "inverse of outdoor" relationship
+actually be implemented, and — since no `activities`/score field existed
+anywhere yet in the schema — where should the 4 scores per day actually live
+on the GraphQL types?
+
+**Explored with AI:** discussed nesting an `ActivityScores` object inside
+each `WeatherResult` day vs. a separate parallel `activities: ActivityScores[]`
+array on `CityForecastResult`; discussed concrete numbers for skiing
+(snow cutoff, temperature/wind penalty thresholds) and surfing (wind-only
+proxy thresholds), since only the direction of each penalty was specified;
+discussed deriving indoor sightseeing from outdoor's score vs. an
+independent inverse formula.
+
+**Decision:**
+- **Schema shape:** `ActivityScores` (`{ skiing, surfing, outdoorSightseeing,
+  indoorSightseeing }`, all `Float`) is nested as an `activities` field
+  directly on `WeatherResult` (`weather/models/activity-scores.model.ts`),
+  not a parallel array on `CityForecastResult`. Every day's weather and its
+  4 scores travel together, so a client never has to zip two arrays by
+  index. Consequence: since `WeatherResult` is shared by both the plain
+  `weather` (lat/lon/timezone) query and `cityForecast`, **both** queries now
+  return per-day activity scores — not just `cityForecast`. This felt like
+  the right call rather than a side effect to work around: scores are a pure
+  function of a day's weather data, independent of which query fetched it.
+- **Where it's computed:** inside the existing `map()` in
+  `WeatherService.fetchForecast$` — the one place that already builds every
+  `WeatherResult` object (shared by both public methods) — via a new private
+  `buildActivityScores(day)` helper that calls all four services'
+  `calculateScore(day)`. No new RxJS operators were added to either
+  pipeline; only that map's callback body changed. Each day object is built
+  first without `activities` (cast to `WeatherResult`, since none of the
+  scoring services read `day.activities` back — reading a field the object
+  hasn't been given yet would be a real bug, this only works because nothing
+  does), then `day.activities` is assigned from the helper before returning.
+- **Skiing** (`skiing-score.service.ts`): hard cutoff — `snowfallSum < 1cm`
+  (`MIN_SNOWFALL_CM`) returns `0` immediately, no other calculation runs; no
+  snow is disqualifying, not partial credit. Otherwise `100 − tempPenalty −
+  windPenalty`, clamped to 0: `tempPenalty = (temperatureMax − 2°C) × 4`,
+  capped at 50 (warmth above freezing-adjacent degrades snow); `windPenalty =
+  (windSpeedMax − 30km/h) × 2`, capped at 30. Caps sum to 80, not 100 — a
+  snowy-but-terrible day floors at a score of 20, never 0, so 0 stays
+  exclusively meaningful as "no snow" rather than also meaning "snow, but
+  awful conditions."
+- **Surfing** (`surfing-score.service.ts`): no wave-height/swell data is
+  available without Open-Meteo's separate Marine Weather API (out of scope
+  for now, same limitation noted in the original 2026-08-08 example entry
+  for this project — see the top of this file). `windSpeedMax` is the only
+  factor, used as a rough proxy: `100 − windPenalty`, clamped to 0, where
+  `windPenalty = 0` at/below 25km/h (`WIND_NEUTRAL_MAX_KMH` — light-to-moderate
+  wind treated as neutral/acceptable), else `(windSpeedMax − 25) × 2` capped
+  at 90. The low confidence of a wind-only swell proxy is reflected in the
+  penalty's magnitude (capped well short of what's needed to zero the score
+  — only genuinely extreme wind, ~70km/h+, gets close to 0), not as a
+  separate confidence field on the result.
+- **Indoor sightseeing** (`indoor-sightseeing-score.service.ts`): derived
+  by injecting `OutdoorSightseeingScoreService` and returning `100 −
+  outdoorScore`, rather than an independent inverse formula built from the
+  same 3 factors (rain/temperature/wind). Chosen because outdoor and indoor
+  are meant to be exact mirrors — deriving from the one existing formula
+  guarantees that; an independent formula would need every future tweak to
+  outdoor's weights/caps re-applied in reverse by hand to stay in sync,
+  which is an easy place for the two to silently drift.
+- All three new services follow `OutdoorSightseeingScoreService`'s existing
+  shape exactly: named constants at the top (no magic numbers), private
+  helper methods per penalty factor, a single public `calculateScore(day:
+  WeatherResult): number`, "100 − penalties, clamped to 0" pattern. Filenames
+  use a `-score.service.ts` suffix (`skiing-score.service.ts`,
+  `surfing-score.service.ts`, `indoor-sightseeing-score.service.ts`) per an
+  explicit naming example given for this work, even though the pre-existing
+  `outdoor-sightseeing.service.ts` doesn't have that suffix — a minor,
+  known inconsistency, not corrected here since renaming the existing file
+  wasn't part of this change.
+- All four registered as providers + exports in `scoring/scoring.module.ts`;
+  `WeatherService` injects all four via constructor (`WeatherModule` already
+  imported `ScoringModule`).
+
+**Assumption (would confirm with a PM):** every numeric threshold/weight/cap
+above (skiing's 1cm/2°C/30km/h cutoffs and their weights/caps; surfing's
+25km/h neutral point, weight, and 90 cap) is a reasonable starting point
+picked to satisfy the stated direction of each penalty, not derived from any
+real product/user feedback or domain data — worth tuning once real usage or
+domain expertise (e.g. an actual skier/surfer's sense of "good conditions")
+is available. Also unconfirmed: whether the plain `weather` query gaining
+activity scores as a side effect of the nested-per-day schema choice is
+desired long-term, or whether it should eventually be split back out so that
+query stays purely raw-weather.
+
+---
+
 ## [date] Next real entry goes here

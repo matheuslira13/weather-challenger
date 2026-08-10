@@ -5,9 +5,16 @@ import { WeatherResolver } from './weather.resolver';
 import { LoggerModule } from '../common/modules/log/logger.module';
 import { GeocodingModule } from '../geocoding/geocoding.module';
 import { RedisModule } from '../redis/redis.module';
+import { ScoringModule } from '../scoring/scoring.module';
 
 @Module({
-  imports: [HttpModule, LoggerModule, GeocodingModule, RedisModule],
+  imports: [
+    HttpModule,
+    LoggerModule,
+    GeocodingModule,
+    RedisModule,
+    ScoringModule,
+  ],
   providers: [WeatherService, WeatherResolver],
   exports: [WeatherService],
 })
