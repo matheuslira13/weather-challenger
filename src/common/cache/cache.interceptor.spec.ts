@@ -4,12 +4,14 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { of } from 'rxjs';
 import { CacheInterceptor } from './cache.interceptor';
 import { RedisService } from '../../redis/redis.service';
+import { LoggerService } from '../modules/log/logger.service';
 
 const CACHE_TTL_SECONDS = 60 * 60 * 3;
 
 describe('CacheInterceptor', () => {
   let interceptor: CacheInterceptor;
   let redisService: { get: jest.Mock; set: jest.Mock };
+  let loggerService: { error: jest.Mock };
   let callHandler: { handle: jest.Mock };
   const context = {} as ExecutionContext;
 
@@ -21,6 +23,7 @@ describe('CacheInterceptor', () => {
 
   beforeEach(async () => {
     redisService = { get: jest.fn(), set: jest.fn() };
+    loggerService = { error: jest.fn() };
     callHandler = { handle: jest.fn() };
 
     jest.spyOn(console, 'info').mockImplementation();
@@ -30,6 +33,7 @@ describe('CacheInterceptor', () => {
       providers: [
         CacheInterceptor,
         { provide: RedisService, useValue: redisService },
+        { provide: LoggerService, useValue: loggerService },
       ],
     }).compile();
 
@@ -80,6 +84,34 @@ describe('CacheInterceptor', () => {
         JSON.stringify(freshValue),
         CACHE_TTL_SECONDS,
       );
+      done();
+    });
+  });
+
+  it('falls back to next.handle() when RedisService.get() rejects (Redis down)', (done) => {
+    mockGqlArgs({ city: 'São Paulo', countryCode: 'BR' });
+    redisService.get.mockRejectedValue(new Error('ECONNREFUSED'));
+    const freshValue = { location: { latitude: -23.55 }, forecast: [] };
+    callHandler.handle.mockReturnValue(of(freshValue));
+
+    interceptor.intercept(context, callHandler).subscribe((result) => {
+      expect(callHandler.handle).toHaveBeenCalled();
+      expect(result).toEqual(freshValue);
+      expect(loggerService.error).toHaveBeenCalled();
+      done();
+    });
+  });
+
+  it('falls back to next.handle() when the cached value is corrupted (fails JSON.parse)', (done) => {
+    mockGqlArgs({ city: 'São Paulo', countryCode: 'BR' });
+    redisService.get.mockResolvedValue('not valid json');
+    const freshValue = { location: { latitude: -23.55 }, forecast: [] };
+    callHandler.handle.mockReturnValue(of(freshValue));
+
+    interceptor.intercept(context, callHandler).subscribe((result) => {
+      expect(callHandler.handle).toHaveBeenCalled();
+      expect(result).toEqual(freshValue);
+      expect(loggerService.error).toHaveBeenCalled();
       done();
     });
   });

@@ -413,4 +413,80 @@ query stays purely raw-weather.
 
 ---
 
+## [2026-08-10] Redis outage resilience — caching must degrade, not crash the app
+
+**Question:** Found via manual testing, not a designed requirement: with no
+`REDIS_URL`, wrong credentials, or the Redis instance unreachable/down, the
+app failed entirely instead of degrading. Root cause — `ioredis` emits an
+`'error'` event on connection failures, and Node's `EventEmitter` throws
+(crashing the process) when an `'error'` event has no listener; separately,
+even if that were handled, `RedisService.get()`/`set()` would still reject
+and that rejection was never caught anywhere in `CacheInterceptor`'s
+pipeline. The 2026-08-10 caching entry above already documented the
+cache-*write* path as fire-and-forget (not awaited, so a slow/failed write
+can't block the response) — but that assumption never actually covered a
+failed/rejecting write, or the read path at all. This entry closes both
+gaps: caching should be a performance optimization, not a hard dependency
+for the API to function.
+
+**Explored with AI:** confirmed the crash mechanism by pointing `REDIS_URL`
+at an unreachable address and running the app live before and after the
+fix — before: unhandled `'error'` event; after: the app stays up, logs the
+connection error repeatedly (`ioredis`'s own retry behavior, untouched by
+this change), and a live `cityForecast` query against the real Open-Meteo
+APIs still returns correct data with Redis fully down. Discussed where to
+add resilience — only in `RedisService` (so every caller automatically gets
+safe behavior), or also independently in `CacheInterceptor` — decided both,
+since defense-in-depth is cheap here and the interceptor is the only actual
+caller today but shouldn't be the only thing standing between a Redis
+failure and a broken request.
+
+**Decision:**
+- `RedisService` (`src/redis/redis.service.ts`): now injects `LoggerService`
+  (added `LoggerModule` to `RedisModule`'s imports for this). The `ioredis`
+  client gets an `.on('error', ...)` listener in the constructor that logs
+  via `LoggerService` — this alone fixes the hard crash, since it's what
+  stops Node's `EventEmitter` from throwing on an unhandled `'error'`
+  event. `get()` and `set()` are both wrapped in try/catch: `get()` logs and
+  resolves `null` on failure (indistinguishable from a real cache miss to
+  every caller); `set()` logs and resolves (void) on failure rather than
+  rejecting — consistent with the existing fire-and-forget assumption for
+  writes, now actually true even when the write errors, not just when it's
+  slow.
+- `CacheInterceptor` (`src/common/cache/cache.interceptor.ts`): added as a
+  second layer of defense, independent of `RedisService`'s own handling.
+  The Redis-read-and-parse step (`redisService.get()` + `JSON.parse` on a
+  hit) was pulled into its own `cachedValue$` observable ending in a
+  `catchError` that logs (now via an injected `LoggerService`, added as a
+  new constructor dependency — the file previously only used raw
+  `console.log`/`console.info` for hit/miss messages, which are unchanged)
+  and falls back to `of(null)`, i.e. treated exactly like a cache miss. This
+  also incidentally guards a corrupted cache entry that fails `JSON.parse`,
+  not just a Redis outage. Placement matters: this `catchError` wraps only
+  the read/parse step, *not* `next.handle()` — the outer `switchMap` that
+  calls `next.handle()` sits after `cachedValue$` in the pipe, so a real
+  business-logic error from the resolver (e.g. `NotFoundException`) still
+  propagates normally and is never swallowed or retried by this fallback.
+  The cache-write `tap()` was already not awaited before returning the
+  response to the client (per the 2026-08-10 caching entry); confirmed this
+  still holds — no `await` was introduced anywhere in this change, so a slow
+  or failing write still can't block or fail the request.
+- Nothing about the cache-hit path, the cache key format
+  (`forecast:<countryCode>:<city>`), or the TTL (`CACHE_TTL_SECONDS = 60 *
+  60 * 3`) changed — this was error handling only.
+- Added `src/redis/redis.service.spec.ts` (didn't exist before) covering
+  the error-listener registration and both `get()`/`set()` failure paths,
+  and extended `cache.interceptor.spec.ts` with the Redis-rejects and
+  corrupted-cache-entry fallback cases.
+
+**Assumption (would confirm with a PM):** `ioredis`'s default reconnect/retry
+behavior is left completely untouched — the client will keep attempting to
+reconnect indefinitely and logging an error on every failed attempt, which
+could get noisy in a sustained outage. No backoff/circuit-breaker/max-retry
+cap was added, since taming retry behavior wasn't part of what was reported
+or asked here; worth revisiting if log volume becomes a real problem during
+an extended Redis outage.
+
+---
+
 ## [date] Next real entry goes here

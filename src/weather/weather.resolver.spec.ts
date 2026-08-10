@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeatherResolver } from './weather.resolver';
 import { WeatherService } from './weather.service';
 import { RedisService } from '../redis/redis.service';
+import { LoggerService } from '../common/modules/log/logger.service';
 
 describe('WeatherResolver', () => {
   let resolver: WeatherResolver;
@@ -22,8 +23,13 @@ describe('WeatherResolver', () => {
         { provide: WeatherService, useValue: weatherService },
         // `@UseInterceptors(CacheInterceptor)` on getCityForecast makes Nest's
         // testing module eagerly instantiate CacheInterceptor, which needs
-        // RedisService — mocked here since this suite doesn't test caching.
+        // RedisService and LoggerService — mocked here since this suite
+        // doesn't test caching.
         { provide: RedisService, useValue: { get: jest.fn(), set: jest.fn() } },
+        {
+          provide: LoggerService,
+          useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn() },
+        },
       ],
     }).compile();
 
